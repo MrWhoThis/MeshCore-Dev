@@ -145,6 +145,7 @@ protected:
     return _prefs.interference_threshold;
   }
   int getAGCResetInterval() const override {
+    if (_prefs.agc_reset_interval == 0) return 30000;  // 30s safe default for devices with legacy prefs
     return ((int)_prefs.agc_reset_interval) * 4000;   // milliseconds
   }
   uint8_t getExtraAckTransmitCount() const override {

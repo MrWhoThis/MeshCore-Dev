@@ -277,13 +277,15 @@ Best practice is when you set up a new repeater, choose a public key that is not
 
 
 ### 3.7. Q: My repeater may be suffering from deafness due to high power interference near my mesh's frequency, it is not hearing other in-range MeshCore radios. What can I do?
-**A:** This may be due to the SX1262 radio's auto gain control feature. You can use this command to periodically reset its AGC.
+**A:** This is caused by the SX1262/SX1268 radio's automatic gain control drifting after extended periods of low activity, making the radio unable to decode weak signals until a strong signal resets it internally.
 
-`set agc.reset.interval <number>`
+As of the current firmware, AGC reset runs automatically every 4 seconds by default on repeaters and room servers (30 seconds fallback for devices with legacy saved settings). No manual configuration is needed for new installs.
 
-The `<number>` unit is in seconds and is incremented by 4. `set agc.reset.interval 4` works well to cure deafness.
+If you are on an older install and still seeing the issue, run this command once via the CLI to enable periodic AGC reset:
 
-This is a very low-cost operation. AGC reset is done by simply setting `state = STATE_IDLE;` in function `RadioLibWrapper::resetAGC()` in `RadioLibWrappers.cpp`
+`set agc.reset.interval 4`
+
+The `<number>` unit is in seconds and is incremented by 4. This is a very low-cost operation — it briefly warm-sleeps the radio frontend and runs a calibration cycle without interrupting packet reception.
 
 
 ### 3.8. Q: How do I make my repeater an observer on the mesh?

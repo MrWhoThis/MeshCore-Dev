@@ -893,6 +893,7 @@ MyMesh::MyMesh(mesh::MainBoard &board, mesh::Radio &radio, mesh::MillisecondCloc
   _prefs.flood_max_unscoped = 64;
   _prefs.flood_max_advert = 8;
   _prefs.interference_threshold = 0; // disabled
+  _prefs.agc_reset_interval = 1;   // 4-second AGC reset interval by default
 
   // bridge defaults
   _prefs.bridge_enabled = 1;    // enabled
