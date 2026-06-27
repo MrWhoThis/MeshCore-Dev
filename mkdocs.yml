@@ -1,15 +1,35 @@
 site_name: MeshCore Docs
-site_url: https://meshcore-dev.github.io/meshcore/
+site_url: https://docs.meshcore.io/
 site_description: Documentation for the open source MeshCore firmware
 
-repo_name: meshcore-dev/meshcore
-repo_url: https://github.com/meshcore-dev/meshcore/
+repo_name: meshcore-dev/MeshCore
+repo_url: https://github.com/meshcore-dev/MeshCore/
 edit_uri: edit/main/docs/
 
 theme:
   name: material
   logo: _assets/meshcore.svg
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
   features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - toc.integrate
     - content.action.edit
     - content.code.copy
     - search.highlight
@@ -17,3 +37,39 @@ theme:
 
 extra_css:
   - _stylesheets/extra.css
+
+plugins:
+  - search
+  - git-revision-date-localized:
+      enable_creation_date: true
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - getting-started/index.md
+    - For Users: getting-started/users.md
+    - For Developers: getting-started/developers.md
+    - Hardware & Devices: getting-started/hardware.md
+  - User Guide:
+    - user-guide/index.md
+    - Flashing Firmware: user-guide/flashing.md
+    - Connecting a Client: user-guide/clients.md
+    - Repeaters & Room Servers: user-guide/servers.md
+    - FAQ: faq.md
+  - Developer Guide:
+    - developer/index.md
+    - Architecture Overview: developer/architecture.md
+    - Example Applications: developer/examples.md
+    - Contributing: developer/contributing.md
+    - Building the Docs: docs.md
+  - Protocol Reference:
+    - Packet Format: packet_format.md
+    - Payloads: payloads.md
+    - Companion Protocol: companion_protocol.md
+    - KISS Modem Protocol: kiss_modem_protocol.md
+    - QR Codes: qr_codes.md
+    - Stats Binary Frames: stats_binary_frames.md
+    - Number Allocations: number_allocations.md
+    - CLI Commands: cli_commands.md
+    - Terminal Chat CLI: terminal_chat_cli.md
+    - NRF52 Power Management: nrf52_power_management.md
