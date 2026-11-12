@@ -1,0 +1,85 @@
+name: Build Heltec V4 Test Firmware
+
+# Builds only the listed Heltec V4 targets from a chosen branch/commit and
+# publishes them as a GitHub pre-release. Avoids the full multi-board matrix.
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_ref:
+        description: 'Branch, tag or SHA to build'
+        default: 'claude/meshcore-repeater-acl-zwrnb4'
+      targets:
+        description: 'Space-separated PlatformIO envs'
+        default: 'heltec_v4_repeater'
+      version:
+        description: 'Version string baked into the firmware'
+        default: 'v1.18.0-acl'
+      release:
+        description: 'Publish a pre-release'
+        type: boolean
+        default: true
+  push:
+    branches:
+      - claude/gifted-bohr-64zymm
+    paths:
+      - .github/workflows/build-heltec-v4.yml
+
+env:
+  SOURCE_REF: ${{ inputs.source_ref || 'claude/meshcore-repeater-acl-zwrnb4' }}
+  TARGETS: ${{ inputs.targets || 'heltec_v4_repeater' }}
+  VERSION: ${{ inputs.version || 'v1.18.0-acl' }}
+  DO_RELEASE: ${{ github.event_name == 'push' || inputs.release }}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+
+      - name: Clone Source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.SOURCE_REF }}
+
+      - name: Setup Build Environment
+        uses: ./.github/actions/setup-build-environment
+
+      - name: Build Firmware
+        id: build
+        env:
+          FIRMWARE_VERSION: ${{ env.VERSION }}
+        run: |
+          mkdir -p out
+          for t in $TARGETS; do
+            /usr/bin/env bash build.sh build-firmware "$t"
+          done
+          (cd out && sha256sum * > SHA256SUMS.txt)
+          ls -la out
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Workflow Artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: heltec-v4-${{ steps.build.outputs.short }}
+          path: out
+
+      - name: Publish Pre-release
+        if: env.DO_RELEASE == 'true'
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: heltec-v4-test-${{ env.VERSION }}-${{ steps.build.outputs.short }}
+          target_commitish: ${{ steps.build.outputs.sha }}
+          name: "Heltec V4 test build ${{ env.VERSION }} (${{ steps.build.outputs.short }})"
+          prerelease: true
+          make_latest: false
+          body: |
+            Test build from `${{ env.SOURCE_REF }}` at ${{ steps.build.outputs.sha }}.
+            Targets: `${{ env.TARGETS }}`
+
+            - `*-merged.bin`: full flash at 0x0 (fresh install)
+            - `*.bin`: app-only update image
+          files: out/*
