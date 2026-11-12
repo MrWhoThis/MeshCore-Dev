@@ -383,6 +383,42 @@ mesh::Packet *MyMesh::createSelfAdvert() {
   return createAdvert(self_id, app_data, app_data_len);
 }
 
+void MyMesh::loadForwardACL() {
+  uint8_t buf[ForwardACL::MAX_SERIALISED_SIZE + 1];  // +1 to detect an oversized file
+  size_t len = 0;
+  if (_fs->exists(FWD_ACL_FILE)) {
+#if defined(RP2040_PLATFORM)
+    File f = _fs->open(FWD_ACL_FILE, "r");
+#else
+    File f = _fs->open(FWD_ACL_FILE);
+#endif
+    if (f) {
+      len = f.read(buf, sizeof(buf));
+      f.close();
+    }
+  }
+  if (len > 0 && !fwd_acl.deserialise(buf, len)) {
+    MESH_DEBUG_PRINTLN("loadForwardACL: invalid file, starting with empty, disabled ACL");
+  }
+}
+
+void MyMesh::saveForwardACL() {
+  uint8_t buf[ForwardACL::MAX_SERIALISED_SIZE];
+  size_t len = fwd_acl.serialise(buf, sizeof(buf));
+#if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
+  _fs->remove(FWD_ACL_FILE);
+  File f = _fs->open(FWD_ACL_FILE, FILE_O_WRITE);
+#elif defined(RP2040_PLATFORM)
+  File f = _fs->open(FWD_ACL_FILE, "w");
+#else
+  File f = _fs->open(FWD_ACL_FILE, "w", true);
+#endif
+  if (f) {
+    f.write(buf, len);
+    f.close();
+  }
+}
+
 File MyMesh::openAppend(const char *fname) {
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
   return _fs->open(fname, FILE_O_WRITE);
@@ -454,6 +490,10 @@ bool MyMesh::allowPacketForward(const mesh::Packet *packet) {
       MESH_DEBUG_PRINTLN("allowPacketForward: FLOOD packet loop detected!");
       return false;
     }
+  }
+  if (fwd_acl.shouldBlock(packet)) {   // evaluated last, so hits only count packets that would otherwise be sent
+    MESH_DEBUG_PRINTLN("allowPacketForward: blocked by forward ACL");
+    return false;
   }
   return true;
 }
@@ -948,6 +988,7 @@ void MyMesh::begin(FILESYSTEM *fs) {
   // load persisted prefs
   _cli.loadPrefs(_fs);
   acl.load(_fs, self_id);
+  loadForwardACL();
   // TODO: key_store.begin();
   region_map.load(_fs);
 
@@ -1272,6 +1313,10 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
       Serial.printf("\n");
     }
     reply[0] = 0;
+  } else if (memcmp(command, "acl", 3) == 0 && (command[3] == 0 || command[3] == ' ')) {  // forwarding ACL
+    if (fwd_acl.handleCommand(&command[3], reply)) {
+      saveForwardACL();
+    }
   } else if (memcmp(command, "discover.neighbors", 18) == 0) {
     const char* sub = command + 18;
     while (*sub == ' ') sub++;

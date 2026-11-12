@@ -36,6 +36,7 @@
 #include <helpers/RegionMap.h>
 #include <helpers/RoutingPolicy.h>
 #include "RateLimiter.h"
+#include "ForwardACL.h"
 
 #ifdef WITH_BRIDGE
 extern AbstractBridge* bridge;
@@ -86,6 +87,7 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   bool _logging;
   NodePrefs _prefs;
   ClientACL  acl;
+  ForwardACL fwd_acl;   // forwarding blocklist (see ForwardACL.h)
   CommonCLI _cli;
   uint8_t reply_data[MAX_PACKET_PAYLOAD];
   uint8_t reply_path[MAX_PATH_SIZE];
@@ -125,6 +127,8 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
   mesh::Packet* createSelfAdvert();
 
   File openAppend(const char* fname);
+  void loadForwardACL();
+  void saveForwardACL();
   bool isLooped(const mesh::Packet* packet, const uint8_t max_counters[]);
 
 protected:

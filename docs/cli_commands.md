@@ -129,6 +129,64 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 
 ---
 
+## Forwarding ACL (Repeater Only)
+
+A blocklist that stops this repeater from **re-transmitting** matching packets, to keep a noisy sender off this repeater's airtime. Packets are still processed locally exactly as before (if this repeater is the destination it still receives them); only forwarding is suppressed. Admin only; works from the serial console and from the apps' remote admin terminal.
+
+Each rule has three fields, `<hop> <src> <dst>`. Every field that is not `*` must match for the rule to hit. Hex is case-insensitive.
+
+| Field | Format | Matches |
+|---|---|---|
+| `hop` | 2 hex chars (1 byte), 4 hex chars (2 bytes) or `*` | First entry in the packet's path, i.e. the first repeater that relayed it. Prefix match against the packet's path hash width (a 1-byte rule matches a 2-byte hash on its first byte; a 2-byte rule against a 1-byte path compares the first byte only). |
+| `src` | 2 hex chars or `*` | Source hash (first byte of the sender's public key) |
+| `dst` | 2 hex chars or `*` | Destination hash |
+
+**Scope:**
+- Only `REQ`, `RESPONSE`, `TXT_MSG` and `PATH` packets are checked (those carry cleartext src/dst hashes). Adverts, group text/data, anonymous requests, ACKs, trace, etc. are never blocked.
+- A non-wildcard `hop` only applies to flood packets that have been relayed at least once. It never matches direct-routed packets (their path is the route ahead, not behind) or flood packets heard straight from the originator.
+- Rules with `hop` = `*` apply to both flood and direct packets.
+- Rules are checked after the repeater's other forwarding checks, so hit counters count packets that would otherwise have been re-transmitted.
+
+### Add a rule
+**Usage:**
+- `acl add <hop> <src> <dst>`
+
+**Examples:**
+- `acl add c8 08 7d` - block 08 → 7d traffic that entered the mesh via repeater `c8`
+- `acl add * 08 *` - block everything from source `08`
+- `acl add c8f2 * *` - block everything first relayed by repeater `c8f2`
+
+Replies `OK: <n>` with the new rule's 1-based index. All-wildcard rules and duplicates are rejected. Max 32 rules.
+
+### Remove a rule
+**Usage:**
+- `acl del <n>` - remove rule `n` (as shown by `acl list`); later rules move up.
+- `acl clear` - remove all rules.
+
+### List rules
+**Usage:**
+- `acl list [page]`
+
+**Note:** 5 rules per page so each reply fits the remote CLI. Each line is `{n}:{hop}/{src}/{dst} h={hits}`, e.g. `1:c8/08/7d h=12`.
+
+### Enable / disable
+**Usage:**
+- `acl on`
+- `acl off`
+
+**Default:** `off`. Rules are kept while off.
+
+### Status and hit counters
+**Usage:**
+- `acl status` - e.g. `acl on, 3/32 entries, 42 hits`
+- `acl reset` - zero the hit counters
+
+**Note:** Hit counters are kept in RAM only and reset on reboot. Rules and the on/off switch are saved to `/fwd_acl` after every change. If that file is missing or corrupt the repeater starts with an empty, disabled ACL.
+
+**Errors:** `ERR: bad hex`, `ERR: full`, `ERR: no such entry`, `ERR: duplicate`, `ERR: all-wildcard rule`, `ERR: no such page`.
+
+---
+
 ## Statistics
 
 ### Clear Stats
