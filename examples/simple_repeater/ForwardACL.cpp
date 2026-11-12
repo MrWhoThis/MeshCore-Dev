@@ -225,8 +225,12 @@ static int tokenise(char* buf, char* argv[], int max_args) {
 
 bool ForwardACL::handleCommand(const char* args, char* reply) {
   char buf[64];
-  strncpy(buf, args ? args : "", sizeof(buf) - 1);
-  buf[sizeof(buf) - 1] = 0;
+  if (args == NULL) args = "";
+  if (strlen(args) >= sizeof(buf)) {   // reject rather than silently truncate
+    strcpy(reply, "ERR: command too long");
+    return false;
+  }
+  strcpy(buf, args);
   char* argv[5];
   int argc = tokenise(buf, argv, 5);
 
@@ -251,7 +255,7 @@ bool ForwardACL::handleCommand(const char* args, char* reply) {
     if (argc != 2) { strcpy(reply, "ERR: usage acl del <n>"); return false; }
     char* end;
     long n = strtol(argv[1], &end, 10);
-    if (*end != 0 || !remove((int)n)) { strcpy(reply, "ERR: no such entry"); return false; }
+    if (*end != 0 || n < 1 || n > _count || !remove((int)n)) { strcpy(reply, "ERR: no such entry"); return false; }
     strcpy(reply, "OK");
     return true;
   }

@@ -128,7 +128,7 @@ class MyMesh : public mesh::Mesh, public CommonCLICallbacks {
 
   File openAppend(const char* fname);
   void loadForwardACL();
-  void saveForwardACL();
+  bool saveForwardACL();
   bool isLooped(const mesh::Packet* packet, const uint8_t max_counters[]);
 
 protected:

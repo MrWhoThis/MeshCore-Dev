@@ -402,7 +402,7 @@ void MyMesh::loadForwardACL() {
   }
 }
 
-void MyMesh::saveForwardACL() {
+bool MyMesh::saveForwardACL() {
   uint8_t buf[ForwardACL::MAX_SERIALISED_SIZE];
   size_t len = fwd_acl.serialise(buf, sizeof(buf));
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
@@ -413,10 +413,10 @@ void MyMesh::saveForwardACL() {
 #else
   File f = _fs->open(FWD_ACL_FILE, "w", true);
 #endif
-  if (f) {
-    f.write(buf, len);
-    f.close();
-  }
+  if (!f) return false;
+  bool ok = f.write(buf, len) == len;
+  f.close();
+  return ok;
 }
 
 File MyMesh::openAppend(const char *fname) {
@@ -491,7 +491,9 @@ bool MyMesh::allowPacketForward(const mesh::Packet *packet) {
       return false;
     }
   }
-  if (fwd_acl.shouldBlock(packet)) {   // evaluated last, so hits only count packets that would otherwise be sent
+  // evaluated last, so hits only count packets that passed the checks above. NOTE: for DIRECT packets
+  // Mesh calls this before its wasSeen() check, so duplicate receptions of a direct packet each count a hit.
+  if (fwd_acl.shouldBlock(packet)) {
     MESH_DEBUG_PRINTLN("allowPacketForward: blocked by forward ACL");
     return false;
   }
@@ -1314,8 +1316,8 @@ void MyMesh::handleCommand(uint32_t sender_timestamp, char *command, char *reply
     }
     reply[0] = 0;
   } else if (memcmp(command, "acl", 3) == 0 && (command[3] == 0 || command[3] == ' ')) {  // forwarding ACL
-    if (fwd_acl.handleCommand(&command[3], reply)) {
-      saveForwardACL();
+    if (fwd_acl.handleCommand(&command[3], reply) && !saveForwardACL()) {
+      strcat(reply, " (save failed)");
     }
   } else if (memcmp(command, "discover.neighbors", 18) == 0) {
     const char* sub = command + 18;

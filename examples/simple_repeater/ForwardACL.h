@@ -72,7 +72,7 @@ public:
   size_t serialise(uint8_t* buf, size_t buf_len) const;   // returns bytes written, 0 if buf too small
   bool deserialise(const uint8_t* buf, size_t len);        // on any error: reset() and return false
 
-  // 'args' is the text after "acl" (may be empty). Writes a reply (< 160 bytes).
+  // 'args' is the text after "acl" (may be empty, max 63 chars). Writes a reply (< 150 bytes).
   // Returns true if persisted state changed, i.e. the caller must save.
   bool handleCommand(const char* args, char* reply);
 

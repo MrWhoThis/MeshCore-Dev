@@ -256,6 +256,50 @@ TEST(ForwardACL, CorruptFileGivesEmptyDisabled) {
   check_bad(nullptr, 0);
 }
 
+TEST(ForwardACL, CliEdgeCases) {
+  ForwardACL acl;
+  char reply[160];
+  EXPECT_FALSE(acl.handleCommand("list 1", reply)); EXPECT_STREQ(reply, "(empty)");
+  EXPECT_FALSE(acl.handleCommand("list 0", reply)); EXPECT_STREQ(reply, "ERR: no such page");
+  EXPECT_FALSE(acl.handleCommand("list -1", reply)); EXPECT_STREQ(reply, "ERR: no such page");
+  EXPECT_FALSE(acl.handleCommand("list 2", reply)); EXPECT_STREQ(reply, "ERR: no such page");
+
+  EXPECT_TRUE(acl.handleCommand("  add  c8 08 7d  ", reply)); EXPECT_STREQ(reply, "OK: 1");
+
+  // over-long input is rejected, not truncated into a valid command
+  std::string longcmd = std::string("add * 03 *") + std::string(60, ' ') + "junk";
+  EXPECT_FALSE(acl.handleCommand(longcmd.c_str(), reply)); EXPECT_STREQ(reply, "ERR: command too long");
+  EXPECT_EQ(acl.getCount(), 1);
+
+  // index that would wrap to 1 when narrowed to int on 64-bit hosts
+  EXPECT_FALSE(acl.handleCommand("del 4294967297", reply)); EXPECT_STREQ(reply, "ERR: no such entry");
+  EXPECT_FALSE(acl.handleCommand("del -1", reply)); EXPECT_STREQ(reply, "ERR: no such entry");
+  EXPECT_EQ(acl.getCount(), 1);
+}
+
+TEST(ForwardACL, HitsFollowEntriesOnDelAndClear) {
+  Packet p = fromHex(CAPTURED);
+  ForwardACL acl;
+  char reply[160];
+  acl.handleCommand("add bc * *", reply);
+  acl.handleCommand("add c8 * *", reply);
+  acl.handleCommand("on", reply);
+  acl.shouldBlock(&p);
+  acl.handleCommand("del 1", reply);
+  EXPECT_EQ(acl.getHits(0), 1u);   // hit counter moved with its rule
+  acl.handleCommand("clear", reply);
+  acl.handleCommand("add * 08 *", reply);
+  EXPECT_EQ(acl.getHits(0), 0u);   // new rule starts at zero
+}
+
+TEST(ForwardACL, WildcardHopMatchesZeroHopDirect) {
+  Packet p = fromHex(CAPTURED);
+  p.header = (p.header & ~PH_ROUTE_MASK) | ROUTE_TYPE_DIRECT;
+  p.setPathHashSizeAndCount(1, 0);
+  EXPECT_TRUE(blockedBy("*", "08", "7d", p));
+  EXPECT_FALSE(blockedBy("c8", "08", "7d", p));
+}
+
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

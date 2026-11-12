@@ -145,7 +145,8 @@ Each rule has three fields, `<hop> <src> <dst>`. Every field that is not `*` mus
 - Only `REQ`, `RESPONSE`, `TXT_MSG` and `PATH` packets are checked (those carry cleartext src/dst hashes). Adverts, group text/data, anonymous requests, ACKs, trace, etc. are never blocked.
 - A non-wildcard `hop` only applies to flood packets that have been relayed at least once. It never matches direct-routed packets (their path is the route ahead, not behind) or flood packets heard straight from the originator.
 - Rules with `hop` = `*` apply to both flood and direct packets.
-- Rules are checked after the repeater's other forwarding checks, so hit counters count packets that would otherwise have been re-transmitted.
+- Only payload version 1 packets are checked (the only version the firmware currently accepts).
+- Rules are checked after the repeater's other forwarding checks. For flood packets a hit is counted once per packet that would otherwise have been re-transmitted; for direct packets every reception counts, including duplicates of the same packet.
 
 ### Add a rule
 **Usage:**
@@ -183,7 +184,7 @@ Replies `OK: <n>` with the new rule's 1-based index. All-wildcard rules and dupl
 
 **Note:** Hit counters are kept in RAM only and reset on reboot. Rules and the on/off switch are saved to `/fwd_acl` after every change. If that file is missing or corrupt the repeater starts with an empty, disabled ACL.
 
-**Errors:** `ERR: bad hex`, `ERR: full`, `ERR: no such entry`, `ERR: duplicate`, `ERR: all-wildcard rule`, `ERR: no such page`.
+**Errors:** `ERR: bad hex`, `ERR: full`, `ERR: no such entry`, `ERR: duplicate`, `ERR: all-wildcard rule`, `ERR: no such page`, `ERR: command too long`. If a change cannot be written to flash, the reply ends with ` (save failed)` and the change is lost on reboot.
 
 ---
 
