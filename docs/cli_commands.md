@@ -133,31 +133,47 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 
 A blocklist that stops this repeater from **re-transmitting** matching packets, to keep a noisy sender off this repeater's airtime. Packets are still processed locally exactly as before (if this repeater is the destination it still receives them); only forwarding is suppressed. Admin only; works from the serial console and from the apps' remote admin terminal.
 
-Each rule has three fields, `<hop> <src> <dst>`. Every field that is not `*` must match for the rule to hit. Hex is case-insensitive.
+There are two kinds of rule. Every field that is not `*` must match for the rule to hit. Hex is case-insensitive.
+
+- **Direct-message rules**, `<hop> <src> <dst>`: checked against `REQ`, `RESPONSE`, `TXT_MSG` and `PATH` packets (those carry cleartext src/dst hashes).
+- **Group rules**, `grp <hop> <chan>`: checked against group text **and** group data packets (`GRP_TXT`, `GRP_DATA`). The sender of a group message is encrypted, so only the channel hash and the path are visible to a repeater.
 
 | Field | Format | Matches |
 |---|---|---|
-| `hop` | 2 hex chars (1 byte), 4 hex chars (2 bytes) or `*` | First entry in the packet's path, i.e. the first repeater that relayed it. Prefix match against the packet's path hash width (a 1-byte rule matches a 2-byte hash on its first byte; a 2-byte rule against a 1-byte path compares the first byte only). |
-| `src` | 2 hex chars or `*` | Source hash (first byte of the sender's public key) |
-| `dst` | 2 hex chars or `*` | Destination hash |
+| `hop` | 2, 4 or 6 hex chars (1–3 bytes), `0`, or `*` | First entry in the packet's path, i.e. the first repeater that relayed it. See *Path hash sizes* below. `0` matches flood packets nobody has relayed yet (heard straight from the originator, i.e. a direct neighbour). |
+| `src` | 2 hex chars or `*` | Source hash (first byte of the sender's public key). DM rules only. |
+| `dst` | 2 hex chars or `*` | Destination hash. DM rules only. |
+| `chan` | 2 hex chars or `*` | Channel hash (first byte of the channel's hash). Group rules only. |
+
+**Path hash sizes:** the originator of a flood packet chooses whether path entries are 1, 2 or 3 bytes. A `hop` rule is compared against the first path entry over the bytes both have in common:
+- a 1-byte rule `c8` matches `c8`, `c8xx` and `c8xxxx`;
+- a 3-byte rule `c8f2a1` matches `c8f2a1` exactly, but also `c8f2` on a 2-byte packet and `c8` on a 1-byte packet.
+
+This is deliberate: a sender cannot dodge a long rule by switching to a smaller hash size. The cost is that on smaller-hash packets the rule also hits other repeaters whose hash shares that prefix.
 
 **Scope:**
-- Only `REQ`, `RESPONSE`, `TXT_MSG` and `PATH` packets are checked (those carry cleartext src/dst hashes). Adverts, group text/data, anonymous requests, ACKs, trace, etc. are never blocked.
-- A non-wildcard `hop` only applies to flood packets that have been relayed at least once. It never matches direct-routed packets (their path is the route ahead, not behind) or flood packets heard straight from the originator.
+- Adverts, anonymous requests, ACKs, trace, control, multipart and raw packets are never blocked.
+- A hex `hop` only applies to flood packets that have been relayed at least once; `0` only to flood packets that have not. Neither ever matches direct-routed packets (their path is the route ahead, not behind).
 - Rules with `hop` = `*` apply to both flood and direct packets.
+- Channel hashes are 1 byte, so unrelated channels can share a hash; a group rule hits all of them.
 - Only payload version 1 packets are checked (the only version the firmware currently accepts).
 - Rules are checked after the repeater's other forwarding checks. For flood packets a hit is counted once per packet that would otherwise have been re-transmitted; for direct packets every reception counts, including duplicates of the same packet.
 
 ### Add a rule
 **Usage:**
 - `acl add <hop> <src> <dst>`
+- `acl add grp <hop> <chan>`
 
 **Examples:**
 - `acl add c8 08 7d` - block 08 → 7d traffic that entered the mesh via repeater `c8`
 - `acl add * 08 *` - block everything from source `08`
-- `acl add c8f2 * *` - block everything first relayed by repeater `c8f2`
+- `acl add c8f2 * *` - block direct messages first relayed by repeater `c8f2`
+- `acl add 0 08 *` - block messages from `08` when it is our direct neighbour
+- `acl add grp c8 11` - block channel `11` group messages that entered the mesh via repeater `c8`
+- `acl add grp c8f2a1 *` - block all group messages first relayed by repeater `c8f2a1`
+- `acl add grp 0 11` - block channel `11` group messages sent by a direct neighbour
 
-Replies `OK: <n>` with the new rule's 1-based index. All-wildcard rules and duplicates are rejected. Max 32 rules.
+Replies `OK: <n>` with the new rule's 1-based index. All-wildcard rules (`* * *`, `grp * *`) and duplicates are rejected. Max 32 rules (both kinds combined).
 
 ### Remove a rule
 **Usage:**
@@ -168,7 +184,7 @@ Replies `OK: <n>` with the new rule's 1-based index. All-wildcard rules and dupl
 **Usage:**
 - `acl list [page]`
 
-**Note:** 5 rules per page so each reply fits the remote CLI. Each line is `{n}:{hop}/{src}/{dst} h={hits}`, e.g. `1:c8/08/7d h=12`.
+**Note:** 4 rules per page so each reply fits the remote CLI. Each line is `{n}:{hop}/{src}/{dst} h={hits}` for DM rules, e.g. `1:c8/08/7d h=12`, and `{n}:grp {hop}/#{chan} h={hits}` for group rules, e.g. `2:grp c8f2a1/#11 h=40`.
 
 ### Enable / disable
 **Usage:**
@@ -182,7 +198,7 @@ Replies `OK: <n>` with the new rule's 1-based index. All-wildcard rules and dupl
 - `acl status` - e.g. `acl on, 3/32 entries, 42 hits`
 - `acl reset` - zero the hit counters
 
-**Note:** Hit counters are kept in RAM only and reset on reboot. Rules and the on/off switch are saved to `/fwd_acl` after every change. If that file is missing or corrupt the repeater starts with an empty, disabled ACL.
+**Note:** Hit counters are kept in RAM only and reset on reboot. Rules and the on/off switch are saved to `/fwd_acl` after every change. If that file is missing or corrupt the repeater starts with an empty, disabled ACL. Files written by older firmware (without group rules) are loaded as-is and rewritten in the new format on the next change; after that, downgrading the firmware will find the file unreadable and start with an empty, disabled ACL.
 
 **Errors:** `ERR: bad hex`, `ERR: full`, `ERR: no such entry`, `ERR: duplicate`, `ERR: all-wildcard rule`, `ERR: no such page`, `ERR: command too long`. If a change cannot be written to flash, the reply ends with ` (save failed)` and the change is lost on reboot.
 

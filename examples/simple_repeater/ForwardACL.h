@@ -17,17 +17,23 @@
 #endif
 
 #define FWD_ACL_FILE          "/fwd_acl"
-#define FWD_ACL_LIST_PAGE     5      // entries per 'acl list' reply (fits the 160 byte CLI reply buffer)
+#define FWD_ACL_LIST_PAGE     4      // entries per 'acl list' reply (fits the 160 byte CLI reply buffer)
+#define FWD_ACL_MAX_HOP_LEN   3      // path hashes are 1..3 bytes (size 4 is reserved)
 
-#define ACL_FLAG_SRC_ANY      0x01   // src is wildcard
-#define ACL_FLAG_DST_ANY      0x02   // dst is wildcard
+#define ACL_FLAG_SRC_ANY      0x01   // src is wildcard (always set for ACL_KIND_GRP)
+#define ACL_FLAG_DST_ANY      0x02   // dst (or channel, for ACL_KIND_GRP) is wildcard
+#define ACL_FLAG_HOP_ZERO     0x04   // hop '0': flood packet heard straight from its originator (empty path)
+
+#define ACL_KIND_DM           0      // REQ / RESPONSE / TXT_MSG / PATH: match on dst/src hashes
+#define ACL_KIND_GRP          1      // GRP_TXT / GRP_DATA: 'dst' holds the channel hash, 'src' unused
 
 struct AclEntry {
-  uint8_t hop[2];
-  uint8_t hop_len;   // 0 = wildcard, 1 or 2
+  uint8_t hop[FWD_ACL_MAX_HOP_LEN];
+  uint8_t hop_len;   // 0 = wildcard (or zero-hop, see ACL_FLAG_HOP_ZERO), 1..3 = prefix of first path hash
+  uint8_t kind;      // ACL_KIND_*
   uint8_t src;
-  uint8_t dst;
-  uint8_t flags;     // bit0: src is wildcard, bit1: dst is wildcard
+  uint8_t dst;       // dest hash, or channel hash for ACL_KIND_GRP
+  uint8_t flags;     // ACL_FLAG_*
 };
 
 // Pure match function: true if every non-wildcard field of 'e' matches 'pkt'.
@@ -40,9 +46,12 @@ class ForwardACL {
   bool     _enabled;
 
 public:
-  // serialised format: magic(4) | version(1) | enabled(1) | count(1) | count * entry(6)
+  // serialised format: magic(4) | version(1) | enabled(1) | count(1) | count * entry
+  //   v2 entry (8): hop[3] | hop_len | kind | src | dst | flags   (written)
+  //   v1 entry (6): hop[2] | hop_len | src | dst | flags          (read only, loaded as ACL_KIND_DM)
   static const size_t HEADER_SIZE = 7;
-  static const size_t ENTRY_SIZE = 6;
+  static const size_t ENTRY_SIZE = 8;
+  static const size_t ENTRY_SIZE_V1 = 6;
   static const size_t MAX_SERIALISED_SIZE = HEADER_SIZE + ENTRY_SIZE * FWD_ACL_MAX_ENTRIES;
 
   ForwardACL() { reset(); }
@@ -77,5 +86,8 @@ public:
   bool handleCommand(const char* args, char* reply);
 
   static bool parseEntry(const char* hop, const char* src, const char* dst, AclEntry& out);
-  static void formatEntry(const AclEntry& e, char* dest);  // e.g. "c8/08/7d", "c8f2/*/7d"
+  static bool parseGroupEntry(const char* hop, const char* chan, AclEntry& out);
+  // e.g. "c8/08/7d", "c8f2a1/*/7d", "0/08/*", "grp c8/#11", "grp 0/#*". 'dest' needs FORMAT_MAX bytes.
+  static const size_t FORMAT_MAX = 20;
+  static void formatEntry(const AclEntry& e, char* dest);
 };
