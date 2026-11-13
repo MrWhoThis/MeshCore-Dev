@@ -87,7 +87,7 @@ public:
   bool handleCommand(const char* args, char* reply);
 
   // Seeds rules from a build-time spec like "c8/08/7d,c8f2/*/11,0/#11" (separators: ',' ';' or space).
-  // DM rules are "hop/src/dst"; group rules are "hop/#chan" (same form 'acl list' prints).
+  // DM rules are "hop/src/dst"; group rules are "hop/#chan" ('acl list' form without the "grp " prefix).
   // Replaces any existing rules and enables the ACL. Returns number of rules added, or -1 on a
   // parse/add error (in which case the ACL is left empty and disabled).
   int loadDefaults(const char* spec);

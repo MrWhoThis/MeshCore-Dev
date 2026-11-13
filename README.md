@@ -16,7 +16,7 @@ This fork adds a small, opt-in **forwarding ACL** to the Simple Repeater. Operat
 
 ```
 acl add * 08 *        # stop forwarding anything from source hash 08
-acl add c8 * *        # stop forwarding traffic first relayed by repeater c8
+acl add c8 * *        # stop forwarding DM-type traffic first relayed by repeater c8
 acl add grp c8 11     # stop forwarding channel 11 group messages first relayed by c8
 acl on                # enable filtering (rules are saved to flash)
 acl list              # show rules with hit counters
