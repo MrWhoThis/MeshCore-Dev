@@ -76,6 +76,11 @@ public:
   // Returns true if persisted state changed, i.e. the caller must save.
   bool handleCommand(const char* args, char* reply);
 
+  // Seeds rules from a build-time spec like "c8/08/7d,c8f2/*/11" (separators: ',' ';' or space).
+  // Replaces any existing rules and enables the ACL. Returns number of rules added, or -1 on a
+  // parse/add error (in which case the ACL is left empty and disabled).
+  int loadDefaults(const char* spec);
+
   static bool parseEntry(const char* hop, const char* src, const char* dst, AclEntry& out);
   static void formatEntry(const AclEntry& e, char* dest);  // e.g. "c8/08/7d", "c8f2/*/7d"
 };

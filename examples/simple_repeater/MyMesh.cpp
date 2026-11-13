@@ -386,7 +386,19 @@ mesh::Packet *MyMesh::createSelfAdvert() {
 void MyMesh::loadForwardACL() {
   uint8_t buf[ForwardACL::MAX_SERIALISED_SIZE + 1];  // +1 to detect an oversized file
   size_t len = 0;
-  if (_fs->exists(FWD_ACL_FILE)) {
+  if (!_fs->exists(FWD_ACL_FILE)) {
+#ifdef FWD_ACL_DEFAULTS
+    // first boot: seed from the build-time rule list and persist it, so later CLI edits
+    // (including 'acl clear') are kept across reboots
+    if (fwd_acl.loadDefaults(FWD_ACL_DEFAULTS) >= 0) {
+      saveForwardACL();
+    } else {
+      MESH_DEBUG_PRINTLN("loadForwardACL: invalid FWD_ACL_DEFAULTS, starting with empty, disabled ACL");
+    }
+#endif
+    return;
+  }
+  {
 #if defined(RP2040_PLATFORM)
     File f = _fs->open(FWD_ACL_FILE, "r");
 #else
