@@ -140,7 +140,7 @@ There are two kinds of rule. Every field that is not `*` must match for the rule
 
 | Field | Format | Matches |
 |---|---|---|
-| `hop` | 2, 4 or 6 hex chars (1–3 bytes), `0`, or `*` | First entry in the packet's path, i.e. the first repeater that relayed it. See *Path hash sizes* below. `0` matches flood packets nobody has relayed yet (heard straight from the originator, i.e. a direct neighbour). |
+| `hop` | 2, 4 or 6 hex chars (1–3 bytes), `0`, or `*` | First entry in the packet's path, i.e. the first repeater that relayed it. See *Path hash sizes* below. `0` matches flood packets nobody has relayed yet (heard straight from the originator, i.e. a direct neighbour). Note `0` (zero hops) is not the same as `00` (a repeater whose hash is `00`). |
 | `src` | 2 hex chars or `*` | Source hash (first byte of the sender's public key). DM rules only. |
 | `dst` | 2 hex chars or `*` | Destination hash. DM rules only. |
 | `chan` | 2 hex chars or `*` | Channel hash (first byte of the channel's hash). Group rules only. |
@@ -167,7 +167,7 @@ This is deliberate: a sender cannot dodge a long rule by switching to a smaller 
 **Examples:**
 - `acl add c8 08 7d` - block 08 → 7d traffic that entered the mesh via repeater `c8`
 - `acl add * 08 *` - block everything from source `08`
-- `acl add c8f2 * *` - block direct messages first relayed by repeater `c8f2`
+- `acl add c8f2 * *` - block DM-type packets (`REQ`/`RESPONSE`/`TXT_MSG`/`PATH`) first relayed by repeater `c8f2`
 - `acl add 0 08 *` - block messages from `08` when it is our direct neighbour
 - `acl add grp c8 11` - block channel `11` group messages that entered the mesh via repeater `c8`
 - `acl add grp c8f2a1 *` - block all group messages first relayed by repeater `c8f2a1`

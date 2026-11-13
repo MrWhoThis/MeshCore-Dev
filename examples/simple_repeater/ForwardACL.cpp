@@ -179,6 +179,10 @@ bool ForwardACL::deserialise(const uint8_t* buf, size_t len) {
     // v1 only knew 1..2 byte hops and the src/dst wildcard flags
     if (v1 && (e.hop_len > 2 || (e.flags & ~(ACL_FLAG_SRC_ANY | ACL_FLAG_DST_ANY)))) { reset(); return false; }
     if (!isValidEntry(e)) { reset(); return false; }
+    // canonicalise: zero bytes that have no meaning for this entry, so they're never written back
+    for (int k = e.hop_len; k < FWD_ACL_MAX_HOP_LEN; k++) e.hop[k] = 0;
+    if (e.flags & ACL_FLAG_SRC_ANY) e.src = 0;
+    if (e.flags & ACL_FLAG_DST_ANY) e.dst = 0;
     _entries[i] = e;
   }
   _count = count;
@@ -279,6 +283,10 @@ static int tokenise(char* buf, char* argv[], int max_args) {
   return n;
 }
 
+static bool isGrpKeyword(const char* s) {   // case-insensitive "grp"
+  return (s[0] | 0x20) == 'g' && (s[1] | 0x20) == 'r' && (s[2] | 0x20) == 'p' && s[3] == 0;
+}
+
 bool ForwardACL::handleCommand(const char* args, char* reply) {
   char buf[64];
   if (args == NULL) args = "";
@@ -298,7 +306,7 @@ bool ForwardACL::handleCommand(const char* args, char* reply) {
 
   if (strcmp(cmd, "add") == 0) {
     AclEntry e;
-    if (argc >= 2 && strcmp(argv[1], "grp") == 0) {
+    if (argc >= 2 && isGrpKeyword(argv[1])) {
       if (argc != 4) { strcpy(reply, "ERR: usage acl add grp <hop> <chan>"); return false; }
       if (!parseGroupEntry(argv[2], argv[3], e)) { strcpy(reply, "ERR: bad hex"); return false; }
     } else {

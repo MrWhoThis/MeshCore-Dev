@@ -543,6 +543,57 @@ TEST(ForwardACLFile, RejectsBadV1) {
   bad({ 'F', 'A', 'C', 'L', 1, 1, 1, 0xc8, 0x00, 1, 0x08, 0x7d, 0, 0, 0 });            // v2-sized entry
 }
 
+TEST(ForwardACLGroup, MoreCoverage) {
+  // upper-case keyword
+  {
+    ForwardACL acl;
+    char reply[160];
+    EXPECT_TRUE(acl.handleCommand("add GRP c8 7d", reply)); EXPECT_STREQ(reply, "OK: 1");
+    acl.handleCommand("list", reply);
+    EXPECT_STREQ(reply, "1:grp c8/#7d h=0");
+  }
+  // GRP_DATA with 3-byte and zero-hop paths
+  Packet p = groupPacket(PAYLOAD_TYPE_GRP_DATA);
+  setPath3(p);
+  EXPECT_TRUE(blockedByGrp("c8f2a1", "7d", p));
+  EXPECT_FALSE(blockedByGrp("c8f2a2", "7d", p));
+  p.setPathHashSizeAndCount(2, 0);
+  EXPECT_TRUE(blockedByGrp("0", "7d", p));
+  // group rules on TRANSPORT_FLOOD
+  std::string hex = std::string("08") + "11223344" + (CAPTURED + 2);
+  Packet tf = fromHex(hex.c_str());
+  tf.header = (tf.header & ~(PH_TYPE_MASK << PH_TYPE_SHIFT)) | (PAYLOAD_TYPE_GRP_TXT << PH_TYPE_SHIFT);
+  ASSERT_EQ(tf.getRouteType(), ROUTE_TYPE_TRANSPORT_FLOOD);
+  EXPECT_TRUE(blockedByGrp("c8", "7d", tf));
+  EXPECT_FALSE(blockedByGrp("0", "7d", tf));
+  tf.setPathHashSizeAndCount(1, 0);
+  EXPECT_TRUE(blockedByGrp("0", "7d", tf));
+  // min_len boundary: 1-byte payload is enough for a channel rule
+  Packet one = groupPacket();
+  one.payload_len = 1;
+  EXPECT_TRUE(blockedByGrp("c8", "7d", one));
+}
+
+TEST(ForwardACLFile, UnusedBytesCanonicalised) {
+  // v2 grp entry with junk in hop[1..2] (hop_len 1), src and dst (DST_ANY)
+  const uint8_t v2[] = {
+    'F', 'A', 'C', 'L', 2, 0, 1,
+    0xc8, 0xaa, 0xbb, 1, ACL_KIND_GRP, 0x55, 0x66, ACL_FLAG_SRC_ANY | ACL_FLAG_DST_ANY,
+  };
+  ForwardACL acl;
+  ASSERT_TRUE(acl.deserialise(v2, sizeof(v2)));
+  const AclEntry* e = acl.getEntry(0);
+  EXPECT_EQ(e->hop[1], 0); EXPECT_EQ(e->hop[2], 0); EXPECT_EQ(e->src, 0); EXPECT_EQ(e->dst, 0);
+  uint8_t buf[ForwardACL::MAX_SERIALISED_SIZE];
+  size_t len = acl.serialise(buf, sizeof(buf));
+  const uint8_t expect[] = {
+    'F', 'A', 'C', 'L', 2, 0, 1,
+    0xc8, 0x00, 0x00, 1, ACL_KIND_GRP, 0x00, 0x00, ACL_FLAG_SRC_ANY | ACL_FLAG_DST_ANY,
+  };
+  ASSERT_EQ(len, sizeof(expect));
+  EXPECT_EQ(memcmp(buf, expect, len), 0);
+}
+
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();
