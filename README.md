@@ -53,6 +53,42 @@ To ship repeaters that start filtering straight away, set a rule list in the rep
 
 DM rules are `hop/src/dst`, group rules are `hop/#chan`. On first boot, and again whenever a firmware with a *different* list is flashed, the list replaces the saved rules and turns the ACL on (or off, if the list is empty). CLI changes made after that persist across reboots. Details, including error handling and downgrades, are in [docs/cli_commands.md → Build-time default rules](./docs/cli_commands.md#build-time-default-rules-fwd_acl_defaults).
 
+### Connecticut Mesh rule set
+
+These are the rules that block the current flood on the Connecticut Mesh. The junk traffic is a back-and-forth between node `08` and nodes `7d` and `11`, entering the mesh through repeater `c8`. Blocking both directions of each conversation at `c8` stops it from being re-flooded across the state and burning airtime and battery on every repeater along the way, while all other traffic through `c8` keeps flowing.
+
+`acl list` on a live repeater running these rules:
+
+```
+1:c8/08/7d h=1014
+2:c8/08/11 h=106
+3:c8/7d/08 h=316
+4:c8/11/08 h=0
+```
+
+| Rule | Blocks (first relayed by `c8`) |
+|---|---|
+| `c8/08/7d` | `08` → `7d` |
+| `c8/08/11` | `08` → `11` |
+| `c8/7d/08` | `7d` → `08` |
+| `c8/11/08` | `11` → `08` (no hits yet; covers the return direction) |
+
+To build them in as defaults:
+
+```ini
+  -D FWD_ACL_DEFAULTS='"c8/08/7d,c8/08/11,c8/7d/08,c8/11/08"'
+```
+
+Or enter them by hand on a running repeater:
+
+```
+acl add c8 08 7d
+acl add c8 08 11
+acl add c8 7d 08
+acl add c8 11 08
+acl on
+```
+
 ## What changed vs. upstream v1.18.0
 
 | File | Change |
