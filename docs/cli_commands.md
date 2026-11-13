@@ -6,6 +6,8 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 
 - [Operational](#operational)
 - [Neighbors](#neighbors-repeater-only)
+- [Forwarding ACL](#forwarding-acl-repeater-only)
+  - [Build-time default rules](#build-time-default-rules-fwd_acl_defaults)
 - [Statistics](#statistics)
 - [Logging](#logging)
 - [Information](#info)
@@ -226,7 +228,7 @@ On later boots the saved rules are loaded as normal, so `acl add`/`del`/`off` et
 - An invalid list (bad hex, wrong number of fields, duplicate, all-wildcard, more than 32 rules) is ignored as a whole: the repeater loads its saved rules instead and tries the list again on every boot.
 - If the rules can't be saved to flash, the built-in list is still used for that boot and is applied again on the next one.
 
-**Downgrading:** firmware older than group-rule support can't read the current `/fwd_acl` format. If it was built with the same list, the stored fingerprint still matches, so the list is **not** re-applied and the repeater comes up with an empty, disabled ACL. Change the list text (e.g. reorder it) to force it to apply. Older firmware also only understands DM rules with 1–2 byte hops, and rejects the whole list if it contains a group rule, a 3-byte hop or `0`.
+**Downgrading:** firmware older than group-rule support can't read the current `/fwd_acl` format. If it was built with the same list, the stored fingerprint still matches, so the list is **not** re-applied and the repeater comes up with an empty, disabled ACL. Older firmware also only understands DM rules with 1–2 byte hops, and rejects the whole list if it contains a group rule, a 3-byte hop or `0`. To get default rules back after a downgrade, build the older firmware with a changed list (e.g. reordered) that contains only DM rules with 1–2 byte hops; otherwise it keeps rejecting the list and stays empty and disabled.
 
 ---
 

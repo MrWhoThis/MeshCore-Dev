@@ -33,7 +33,7 @@ To ship repeaters that start filtering straight away, set a rule list in the rep
   -D FWD_ACL_DEFAULTS='"c8/08/7d,c8/#11"'
 ```
 
-DM rules are `hop/src/dst`, group rules are `hop/#chan`. On first boot, and again whenever a firmware with a *different* list is flashed, the list replaces the saved rules and turns the ACL on. CLI changes made after that persist across reboots. Details, including error handling and downgrades, are in [docs/cli_commands.md → Build-time default rules](./docs/cli_commands.md#build-time-default-rules-fwd_acl_defaults).
+DM rules are `hop/src/dst`, group rules are `hop/#chan`. On first boot, and again whenever a firmware with a *different* list is flashed, the list replaces the saved rules and turns the ACL on (or off, if the list is empty). CLI changes made after that persist across reboots. Details, including error handling and downgrades, are in [docs/cli_commands.md → Build-time default rules](./docs/cli_commands.md#build-time-default-rules-fwd_acl_defaults).
 
 ## What changed vs. upstream v1.18.0
 
