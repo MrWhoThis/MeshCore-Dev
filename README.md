@@ -71,7 +71,7 @@ These are the rules that block the current flood on the Connecticut Mesh. The ju
 | `c8/08/7d` | `08` → `7d` |
 | `c8/08/11` | `08` → `11` |
 | `c8/7d/08` | `7d` → `08` |
-| `c8/11/08` | `11` → `08` (no hits yet; covers the return direction) |
+| `c8/11/08` | `11` → `08` (covers the return direction) |
 
 To build them in as defaults:
 
