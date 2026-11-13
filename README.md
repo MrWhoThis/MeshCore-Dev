@@ -73,6 +73,26 @@ These are the rules that block the current flood on the Connecticut Mesh. The ju
 | `c8/7d/08` | `7d` → `08` |
 | `c8/11/08` | `11` → `08` (no hits yet; covers the return direction) |
 
+#### Example offending packet
+
+A captured copy of the flood traffic:
+
+```
+0906c8bcd30d12ab7d0886466484caabf4a8007d365ba61a1a9101c45247638baaca6d4b2b7c4e502dcd6919
+```
+
+| Bytes | Field | Value |
+|---|---|---|
+| `09` | Header | Route type `01` = **flood**; payload type `2` = **TXT_MSG** (direct text message); version 1 |
+| `06` | Path length | 1-byte hashes, **6 hops** so far |
+| `c8 bc d3 0d 12 ab` | Path | First relayed by **`c8`**, then `bc` → `d3` → `0d` → `12` → `ab` |
+| `7d` | Destination hash | **`7d`** |
+| `08` | Source hash | **`08`** |
+| `8646` | MAC | 2-byte authentication code |
+| `6484…6919` | Ciphertext | 32 bytes (2 AES blocks): timestamp, flags and a short text |
+
+It is a private message from `08` to `7d` sent as a **flood** instead of along a known route, so every repeater that hears it re-broadcasts it across the whole mesh. This copy had already been relayed by 6 repeaters. Rule `c8/08/7d` matches it: the first hop is `c8`, the source is `08` and the destination is `7d`. The hop rule only looks at the first path entry, so the message is caught however far it has already spread. The message body is encrypted; a repeater only sees the cleartext `08` → `7d` header, which is exactly what DM rules match on.
+
 To build them in as defaults:
 
 ```ini
