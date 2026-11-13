@@ -594,6 +594,62 @@ TEST(ForwardACLFile, UnusedBytesCanonicalised) {
   EXPECT_EQ(memcmp(buf, expect, len), 0);
 }
 
+TEST(ForwardACL, LoadDefaultsFromBuildSpec) {
+  ForwardACL acl;
+  EXPECT_EQ(acl.loadDefaults("c8/08/7d,c8/08/11;c8/7d/08 c8/11/08"), 4);
+  EXPECT_TRUE(acl.isEnabled());
+  char reply[160];
+  acl.handleCommand(" list", reply);
+  EXPECT_STREQ(reply, "1:c8/08/7d h=0\n2:c8/08/11 h=0\n3:c8/7d/08 h=0\n4:c8/11/08 h=0");
+
+  // captured packet is a flood from 08 to 7d whose first hop is c8 -> rule 1 blocks it
+  Packet p = fromHex(CAPTURED);
+  EXPECT_TRUE(acl.shouldBlock(&p));
+  EXPECT_EQ(acl.getHits(0), 1u);
+}
+
+TEST(ForwardACL, LoadDefaultsWildcardsAndEmpty) {
+  ForwardACL acl;
+  EXPECT_EQ(acl.loadDefaults("c8f2/*/7d"), 1);
+  EXPECT_EQ(acl.loadDefaults(""), 0);
+  EXPECT_FALSE(acl.isEnabled());
+}
+
+TEST(ForwardACL, LoadDefaultsRejectsBadSpec) {
+  ForwardACL acl;
+  EXPECT_EQ(acl.loadDefaults("c8/08/7d,zz/08/7d"), -1);   // bad hex
+  EXPECT_EQ(acl.getCount(), 0);
+  EXPECT_FALSE(acl.isEnabled());
+  EXPECT_EQ(acl.loadDefaults("c8/08"), -1);               // missing field
+  EXPECT_EQ(acl.loadDefaults("c8/08/7d/11"), -1);         // extra field
+  EXPECT_EQ(acl.loadDefaults("*/*/*"), -1);               // all-wildcard
+  EXPECT_EQ(acl.loadDefaults("c8/08/7d,c8/08/7d"), -1);   // duplicate
+  EXPECT_EQ(acl.loadDefaults("c8f2aabb/08/7d"), -1);      // hop too long
+  EXPECT_EQ(acl.loadDefaults("c8/#"), -1);                // group rule missing channel
+  EXPECT_EQ(acl.loadDefaults("c8/#11/7d"), -1);           // group rule with extra field
+  EXPECT_EQ(acl.loadDefaults("*/#*"), -1);                // all-wildcard group rule
+  EXPECT_EQ(acl.loadDefaults("c8"), -1);                  // no fields
+}
+
+TEST(ForwardACL, LoadDefaultsGroupAndNewHops) {
+  ForwardACL acl;
+  EXPECT_EQ(acl.loadDefaults("c8f2a1/08/7d,0/#11,c8/#*,0/*/*"), 4);
+  EXPECT_TRUE(acl.isEnabled());
+  char reply[160];
+  acl.handleCommand("list", reply);
+  EXPECT_STREQ(reply, "1:c8f2a1/08/7d h=0\n2:grp 0/#11 h=0\n3:grp c8/#* h=0\n4:0/*/* h=0");
+  Packet p = groupPacket();
+  EXPECT_TRUE(acl.shouldBlock(&p));   // rule 3: group via c8
+  EXPECT_EQ(acl.getHits(2), 1u);
+}
+
+TEST(ForwardACL, SpecHashDetectsChangedList) {
+  const char* a = "c8/08/7d,c8/08/11,c8/7d/08,c8/11/08";
+  EXPECT_EQ(ForwardACL::specHash(a), ForwardACL::specHash("c8/08/7d,c8/08/11,c8/7d/08,c8/11/08"));
+  EXPECT_NE(ForwardACL::specHash(a), ForwardACL::specHash("c8/08/7d,c8/08/11,c8/7d/08"));
+  EXPECT_NE(ForwardACL::specHash(a), ForwardACL::specHash("c8/08/7d,c8/08/11,c8/7d/08,c8/11/09"));
+}
+
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

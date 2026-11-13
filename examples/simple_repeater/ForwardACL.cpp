@@ -248,6 +248,47 @@ bool ForwardACL::parseEntry(const char* hop, const char* src, const char* dst, A
   return true;
 }
 
+int ForwardACL::loadDefaults(const char* spec) {
+  reset();
+  if (spec == NULL) return -1;
+  const char* p = spec;
+  while (*p) {
+    while (*p == ',' || *p == ';' || *p == ' ') p++;
+    if (*p == 0) break;
+    char tok[16];
+    int n = 0;
+    while (*p && *p != ',' && *p != ';' && *p != ' ') {
+      if (n >= (int)sizeof(tok) - 1) { reset(); return -1; }
+      tok[n++] = *p++;
+    }
+    tok[n] = 0;
+    char* s1 = strchr(tok, '/');
+    if (s1 == NULL) { reset(); return -1; }
+    AclEntry e;
+    if (s1[1] == '#') {   // group rule: hop/#chan
+      if (strchr(s1 + 1, '/') != NULL) { reset(); return -1; }
+      *s1 = 0;
+      if (!parseGroupEntry(tok, s1 + 2, e) || add(e) < 0) { reset(); return -1; }
+    } else {              // DM rule: hop/src/dst
+      char* s2 = strchr(s1 + 1, '/');
+      if (s2 == NULL || strchr(s2 + 1, '/') != NULL) { reset(); return -1; }
+      *s1 = 0; *s2 = 0;
+      if (!parseEntry(tok, s1 + 1, s2 + 1, e) || add(e) < 0) { reset(); return -1; }
+    }
+  }
+  _enabled = _count > 0;
+  return _count;
+}
+
+uint32_t ForwardACL::specHash(const char* spec) {
+  uint32_t h = 2166136261u;
+  for (const char* p = spec; p && *p; p++) {
+    h ^= (uint8_t)*p;
+    h *= 16777619u;
+  }
+  return h;
+}
+
 void ForwardACL::formatEntry(const AclEntry& e, char* dest) {
   char hop[2 * FWD_ACL_MAX_HOP_LEN + 1], src[3], dst[3];
   if (e.flags & ACL_FLAG_HOP_ZERO) {

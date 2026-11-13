@@ -17,6 +17,7 @@
 #endif
 
 #define FWD_ACL_FILE          "/fwd_acl"
+#define FWD_ACL_DEFAULTS_FILE "/fwd_acl_def"   // fingerprint of the last applied FWD_ACL_DEFAULTS
 #define FWD_ACL_LIST_PAGE     4      // entries per 'acl list' reply (fits the 160 byte CLI reply buffer)
 #define FWD_ACL_MAX_HOP_LEN   3      // path hashes are 1..3 bytes (size 4 is reserved)
 
@@ -84,6 +85,15 @@ public:
   // 'args' is the text after "acl" (may be empty, max 63 chars). Writes a reply (< 150 bytes).
   // Returns true if persisted state changed, i.e. the caller must save.
   bool handleCommand(const char* args, char* reply);
+
+  // Seeds rules from a build-time spec like "c8/08/7d,c8f2/*/11,0/#11" (separators: ',' ';' or space).
+  // DM rules are "hop/src/dst"; group rules are "hop/#chan" (same form 'acl list' prints).
+  // Replaces any existing rules and enables the ACL. Returns number of rules added, or -1 on a
+  // parse/add error (in which case the ACL is left empty and disabled).
+  int loadDefaults(const char* spec);
+
+  // FNV-1a fingerprint of a defaults spec, used to detect a firmware with a different rule list.
+  static uint32_t specHash(const char* spec);
 
   static bool parseEntry(const char* hop, const char* src, const char* dst, AclEntry& out);
   static bool parseGroupEntry(const char* hop, const char* chan, AclEntry& out);

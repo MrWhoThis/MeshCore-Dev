@@ -1,3 +1,45 @@
+# MeshCore-Dev — Connecticut Mesh fork
+
+> **This is a fork of [MeshCore](https://github.com/meshcore-dev/MeshCore) v1.18.0 with one addition: a forwarding ACL (blocklist) for repeaters.**
+
+## Why this fork exists
+
+The Connecticut Mesh has been taking floods of junk traffic coming in from nodes in the Monroe area. That traffic eats airtime on every repeater that relays it. Stock MeshCore doesn't give a repeater operator a way to stop forwarding a specific sender's traffic.
+
+This fork adds a small, opt-in **forwarding ACL** to the Simple Repeater. Operators can stop their repeater from **re-transmitting** packets that match a source, a destination, and/or the first repeater the packets entered the mesh through. Nothing else changes:
+
+- Packets addressed to the repeater itself are still received and processed normally. Only forwarding is suppressed.
+- The ACL is **off by default**. A repeater flashed with this firmware behaves exactly like stock v1.18.0 until an admin adds rules and runs `acl on`.
+- Direct-message rules check `REQ`, `RESPONSE`, `TXT_MSG` and `PATH` packets, which carry cleartext source and destination hashes. Group rules (`acl add grp <hop> <chan>`) check channel/group messages by channel hash and first hop, since their sender is encrypted. Adverts, ACKs, trace and similar packets are never blocked.
+
+## Quick start (repeater admin CLI)
+
+```
+acl add * 08 *        # stop forwarding anything from source hash 08
+acl add c8 * *        # stop forwarding traffic first relayed by repeater c8
+acl add grp c8 11     # stop forwarding channel 11 group messages first relayed by c8
+acl on                # enable filtering (rules are saved to flash)
+acl list              # show rules with hit counters
+acl status            # e.g. "acl on, 2/32 entries, 42 hits"
+```
+
+The full reference is in [docs/cli_commands.md → Forwarding ACL](./docs/cli_commands.md#forwarding-acl-repeater-only). It covers rule syntax, scope, persistence and error messages.
+
+## What changed vs. upstream v1.18.0
+
+| File | Change |
+|---|---|
+| `examples/simple_repeater/ForwardACL.{h,cpp}` | Rule matching, CLI parsing, save/load to `/fwd_acl` |
+| `examples/simple_repeater/MyMesh.{h,cpp}` | Hooks the ACL into `allowPacketForward()` and the CLI |
+| `test/test_forward_acl/` | Native unit tests (`pio test -e native -f test_forward_acl`) |
+| `docs/cli_commands.md` | Forwarding ACL documentation |
+
+Companion, room server and sensor firmware are unchanged from upstream.
+
+---
+
+*The rest of this README is the upstream MeshCore README.*
+
 ## About MeshCore
 
 MeshCore is a lightweight, portable C++ library that enables multi-hop packet routing for embedded projects using LoRa and other packet radios. It is designed for developers who want to create resilient, decentralized communication networks that work without the internet.
