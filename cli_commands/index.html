@@ -567,6 +567,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#build-time-default-rules-fwd_acl_defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build-time default rules (FWD_ACL_DEFAULTS)
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2297,6 +2308,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#build-time-default-rules-fwd_acl_defaults" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Build-time default rules (FWD_ACL_DEFAULTS)
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -3445,6 +3467,8 @@
 <ul>
 <li><a href="#operational">Operational</a></li>
 <li><a href="#neighbors-repeater-only">Neighbors</a></li>
+<li><a href="#forwarding-acl-repeater-only">Forwarding ACL</a></li>
+<li><a href="#build-time-default-rules-fwd_acl_defaults">Build-time default rules</a></li>
 <li><a href="#statistics">Statistics</a></li>
 <li><a href="#logging">Logging</a></li>
 <li><a href="#info">Information</a></li>
@@ -3604,13 +3628,29 @@
 <p><strong>Usage:</strong>
 - <code>acl on</code>
 - <code>acl off</code></p>
-<p><strong>Default:</strong> <code>off</code>. Rules are kept while off.</p>
+<p><strong>Default:</strong> <code>off</code>, unless the firmware was built with default rules (see <a href="#build-time-default-rules-fwd_acl_defaults">Build-time default rules</a>). Rules are kept while off.</p>
 <h3 id="status-and-hit-counters">Status and hit counters</h3>
 <p><strong>Usage:</strong>
 - <code>acl status</code> - e.g. <code>acl on, 3/32 entries, 42 hits</code>
 - <code>acl reset</code> - zero the hit counters</p>
-<p><strong>Note:</strong> Hit counters are kept in RAM only and reset on reboot. Rules and the on/off switch are saved to <code>/fwd_acl</code> after every change. If that file is missing or corrupt the repeater starts with an empty, disabled ACL. Files written by older firmware (without group rules) are loaded as-is and rewritten in the new format on the next change; after that, downgrading the firmware will find the file unreadable and start with an empty, disabled ACL.</p>
+<p><strong>Note:</strong> Hit counters are kept in RAM only and reset on reboot. Rules and the on/off switch are saved to <code>/fwd_acl</code> after every change. On boot the repeater loads that file; if it is missing or corrupt the repeater starts with an empty, disabled ACL. The one exception is a firmware built with default rules that have not been applied yet, see below.</p>
+<p>Files written by older firmware (without group rules) are loaded as-is and rewritten in the new format on the next change. After that, downgrading to older firmware will find the file unreadable and start with an empty, disabled ACL.</p>
 <p><strong>Errors:</strong> <code>ERR: bad hex</code>, <code>ERR: full</code>, <code>ERR: no such entry</code>, <code>ERR: duplicate</code>, <code>ERR: all-wildcard rule</code>, <code>ERR: no such page</code>, <code>ERR: command too long</code>. If a change cannot be written to flash, the reply ends with <code>(save failed)</code> and the change is lost on reboot.</p>
+<h3 id="build-time-default-rules-fwd_acl_defaults">Build-time default rules (<code>FWD_ACL_DEFAULTS</code>)</h3>
+<p>A repeater firmware can be built with a rule list, so it comes up already filtering without anyone typing <code>acl</code> commands. Add the flag to the repeater's <code>build_flags</code> in its <code>platformio.ini</code> env:</p>
+<pre><code class="language-ini">  -D FWD_ACL_DEFAULTS='&quot;c8/08/7d,c8/#11,0/#11&quot;'
+</code></pre>
+<p><strong>Spec format:</strong> rules separated by <code>,</code>, <code>;</code> or spaces; each rule is at most 15 characters. Fields use the same values as <code>acl add</code>:
+- DM rule: <code>hop/src/dst</code>, e.g. <code>c8/08/7d</code>, <code>*/08/*</code>, <code>0/08/*</code>
+- Group rule: <code>hop/#chan</code>, e.g. <code>c8/#11</code>, <code>0/#*</code> (the <code>acl list</code> form without the <code>grp</code> prefix)</p>
+<p><strong>When the list is applied:</strong> the repeater stores a fingerprint of the list text in <code>/fwd_acl_def</code>. On boot, if the built-in list's fingerprint is different from the stored one (first boot, or a flash with a different list):
+- the saved rules are <strong>replaced</strong> by the built-in list, the ACL is turned <strong>on</strong> (or off, if the list is empty), and the result is saved to <code>/fwd_acl</code>;
+- the fingerprint is then stored, so this happens only once per list.</p>
+<p>On later boots the saved rules are loaded as normal, so <code>acl add</code>/<code>del</code>/<code>off</code> etc. made after that persist until a firmware with a different list is flashed. Any change to the list text counts as different, including reordering or spacing, and re-applies it. Building without the flag leaves the saved rules alone.</p>
+<p><strong>If something goes wrong:</strong>
+- An invalid list (bad hex, wrong number of fields, duplicate, all-wildcard, more than 32 rules) is ignored as a whole: the repeater loads its saved rules instead and tries the list again on every boot.
+- If the rules can't be saved to flash, the built-in list is still used for that boot and is applied again on the next one.</p>
+<p><strong>Downgrading:</strong> firmware older than group-rule support can't read the current <code>/fwd_acl</code> format. If it was built with the same list, the stored fingerprint still matches, so the list is <strong>not</strong> re-applied and the repeater comes up with an empty, disabled ACL. Older firmware also only understands DM rules with 1–2 byte hops, and rejects the whole list if it contains a group rule, a 3-byte hop or <code>0</code>. To get default rules back after a downgrade, build the older firmware with a changed list (e.g. reordered) that contains only DM rules with 1–2 byte hops; otherwise it keeps rejecting the list and stays empty and disabled.</p>
 <hr />
 <h2 id="statistics">Statistics</h2>
 <h3 id="clear-stats">Clear Stats</h3>
