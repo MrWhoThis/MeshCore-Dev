@@ -73,6 +73,22 @@ These are the rules that block the current flood on the Connecticut Mesh. The ju
 | `c8/7d/08` | `7d` → `08` |
 | `c8/11/08` | `11` → `08` (no hits yet; covers the return direction) |
 
+To build them in as defaults:
+
+```ini
+  -D FWD_ACL_DEFAULTS='"c8/08/7d,c8/08/11,c8/7d/08,c8/11/08"'
+```
+
+Or enter them by hand on a running repeater:
+
+```
+acl add c8 08 7d
+acl add c8 08 11
+acl add c8 7d 08
+acl add c8 11 08
+acl on
+```
+
 #### Example offending packet
 
 A captured copy of the flood traffic:
@@ -92,22 +108,6 @@ A captured copy of the flood traffic:
 | `6484…6919` | Ciphertext | 32 bytes (2 AES blocks): timestamp, flags and a short text |
 
 It is a private message from `08` to `7d` sent as a **flood** instead of along a known route, so every repeater that hears it re-broadcasts it across the whole mesh. This copy had already been relayed by 6 repeaters. Rule `c8/08/7d` matches it: the first hop is `c8`, the source is `08` and the destination is `7d`. The hop rule only looks at the first path entry, so the message is caught however far it has already spread. The message body is encrypted; a repeater only sees the cleartext `08` → `7d` header, which is exactly what DM rules match on.
-
-To build them in as defaults:
-
-```ini
-  -D FWD_ACL_DEFAULTS='"c8/08/7d,c8/08/11,c8/7d/08,c8/11/08"'
-```
-
-Or enter them by hand on a running repeater:
-
-```
-acl add c8 08 7d
-acl add c8 08 11
-acl add c8 7d 08
-acl add c8 11 08
-acl on
-```
 
 ## What changed vs. upstream v1.18.0
 
