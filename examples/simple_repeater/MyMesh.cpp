@@ -386,18 +386,48 @@ mesh::Packet *MyMesh::createSelfAdvert() {
 void MyMesh::loadForwardACL() {
   uint8_t buf[ForwardACL::MAX_SERIALISED_SIZE + 1];  // +1 to detect an oversized file
   size_t len = 0;
-  if (!_fs->exists(FWD_ACL_FILE)) {
 #ifdef FWD_ACL_DEFAULTS
-    // first boot: seed from the build-time rule list and persist it, so later CLI edits
-    // (including 'acl clear') are kept across reboots
-    if (fwd_acl.loadDefaults(FWD_ACL_DEFAULTS) >= 0) {
-      saveForwardACL();
-    } else {
-      MESH_DEBUG_PRINTLN("loadForwardACL: invalid FWD_ACL_DEFAULTS, starting with empty, disabled ACL");
+  // Apply the build-time rule list whenever this firmware's list differs from the one last
+  // applied (first boot, or a flash with a new list). This overwrites the saved ACL once;
+  // CLI edits made afterwards persist until firmware with a different list is flashed.
+  {
+    uint32_t want = ForwardACL::specHash(FWD_ACL_DEFAULTS);
+    uint32_t have = 0;
+    bool have_ok = false;
+    if (_fs->exists(FWD_ACL_DEFAULTS_FILE)) {
+  #if defined(RP2040_PLATFORM)
+      File f = _fs->open(FWD_ACL_DEFAULTS_FILE, "r");
+  #else
+      File f = _fs->open(FWD_ACL_DEFAULTS_FILE);
+  #endif
+      if (f) {
+        have_ok = f.read((uint8_t *)&have, sizeof(have)) == sizeof(have);
+        f.close();
+      }
     }
-#endif
-    return;
+    if (!have_ok || have != want) {
+      if (fwd_acl.loadDefaults(FWD_ACL_DEFAULTS) >= 0) {
+        if (!saveForwardACL()) return;   // use defaults now, retry the save on next boot
+  #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
+        _fs->remove(FWD_ACL_DEFAULTS_FILE);
+        File f = _fs->open(FWD_ACL_DEFAULTS_FILE, FILE_O_WRITE);
+  #elif defined(RP2040_PLATFORM)
+        File f = _fs->open(FWD_ACL_DEFAULTS_FILE, "w");
+  #else
+        File f = _fs->open(FWD_ACL_DEFAULTS_FILE, "w", true);
+  #endif
+        if (f) {
+          f.write((uint8_t *)&want, sizeof(want));
+          f.close();
+        }
+        return;
+      }
+      MESH_DEBUG_PRINTLN("loadForwardACL: invalid FWD_ACL_DEFAULTS, keeping saved ACL");
+      fwd_acl.reset();   // fall through and load whatever is saved
+    }
   }
+#endif
+  if (!_fs->exists(FWD_ACL_FILE)) return;
   {
 #if defined(RP2040_PLATFORM)
     File f = _fs->open(FWD_ACL_FILE, "r");

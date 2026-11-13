@@ -222,6 +222,15 @@ int ForwardACL::loadDefaults(const char* spec) {
   return _count;
 }
 
+uint32_t ForwardACL::specHash(const char* spec) {
+  uint32_t h = 2166136261u;
+  for (const char* p = spec; p && *p; p++) {
+    h ^= (uint8_t)*p;
+    h *= 16777619u;
+  }
+  return h;
+}
+
 void ForwardACL::formatEntry(const AclEntry& e, char* dest) {
   char hop[5], src[3], dst[3];
   if (e.hop_len == 0) strcpy(hop, "*");

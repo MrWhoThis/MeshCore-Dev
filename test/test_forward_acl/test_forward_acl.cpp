@@ -337,3 +337,10 @@ TEST(ForwardACL, LoadDefaultsRejectsBadSpec) {
   EXPECT_EQ(acl.loadDefaults("c8/08/7d,c8/08/7d"), -1);   // duplicate
   EXPECT_EQ(acl.loadDefaults("c8f2aa/08/7d"), -1);        // hop too long
 }
+
+TEST(ForwardACL, SpecHashDetectsChangedList) {
+  const char* a = "c8/08/7d,c8/08/11,c8/7d/08,c8/11/08";
+  EXPECT_EQ(ForwardACL::specHash(a), ForwardACL::specHash("c8/08/7d,c8/08/11,c8/7d/08,c8/11/08"));
+  EXPECT_NE(ForwardACL::specHash(a), ForwardACL::specHash("c8/08/7d,c8/08/11,c8/7d/08"));
+  EXPECT_NE(ForwardACL::specHash(a), ForwardACL::specHash("c8/08/7d,c8/08/11,c8/7d/08,c8/11/09"));
+}
