@@ -6,6 +6,8 @@ This document provides an overview of CLI commands that can be sent to MeshCore 
 
 - [Operational](#operational)
 - [Neighbors](#neighbors-repeater-only)
+- [Forwarding ACL](#forwarding-acl-repeater-only)
+  - [Build-time default rules](#build-time-default-rules-fwd_acl_defaults)
 - [Statistics](#statistics)
 - [Logging](#logging)
 - [Information](#info)
@@ -191,16 +193,42 @@ Replies `OK: <n>` with the new rule's 1-based index. All-wildcard rules (`* * *`
 - `acl on`
 - `acl off`
 
-**Default:** `off`. Rules are kept while off.
+**Default:** `off`, unless the firmware was built with default rules (see [Build-time default rules](#build-time-default-rules-fwd_acl_defaults)). Rules are kept while off.
 
 ### Status and hit counters
 **Usage:**
 - `acl status` - e.g. `acl on, 3/32 entries, 42 hits`
 - `acl reset` - zero the hit counters
 
-**Note:** Hit counters are kept in RAM only and reset on reboot. Rules and the on/off switch are saved to `/fwd_acl` after every change. If that file is missing or corrupt the repeater starts with an empty, disabled ACL. Files written by older firmware (without group rules) are loaded as-is and rewritten in the new format on the next change; after that, downgrading the firmware will find the file unreadable and start with an empty, disabled ACL.
+**Note:** Hit counters are kept in RAM only and reset on reboot. Rules and the on/off switch are saved to `/fwd_acl` after every change. On boot the repeater loads that file; if it is missing or corrupt the repeater starts with an empty, disabled ACL. The one exception is a firmware built with default rules that have not been applied yet, see below.
+
+Files written by older firmware (without group rules) are loaded as-is and rewritten in the new format on the next change. After that, downgrading to older firmware will find the file unreadable and start with an empty, disabled ACL.
 
 **Errors:** `ERR: bad hex`, `ERR: full`, `ERR: no such entry`, `ERR: duplicate`, `ERR: all-wildcard rule`, `ERR: no such page`, `ERR: command too long`. If a change cannot be written to flash, the reply ends with ` (save failed)` and the change is lost on reboot.
+
+### Build-time default rules (`FWD_ACL_DEFAULTS`)
+
+A repeater firmware can be built with a rule list, so it comes up already filtering without anyone typing `acl` commands. Add the flag to the repeater's `build_flags` in its `platformio.ini` env:
+
+```ini
+  -D FWD_ACL_DEFAULTS='"c8/08/7d,c8/#11,0/#11"'
+```
+
+**Spec format:** rules separated by `,`, `;` or spaces; each rule is at most 15 characters. Fields use the same values as `acl add`:
+- DM rule: `hop/src/dst`, e.g. `c8/08/7d`, `*/08/*`, `0/08/*`
+- Group rule: `hop/#chan`, e.g. `c8/#11`, `0/#*` (the `acl list` form without the `grp ` prefix)
+
+**When the list is applied:** the repeater stores a fingerprint of the list text in `/fwd_acl_def`. On boot, if the built-in list's fingerprint is different from the stored one (first boot, or a flash with a different list):
+- the saved rules are **replaced** by the built-in list, the ACL is turned **on** (or off, if the list is empty), and the result is saved to `/fwd_acl`;
+- the fingerprint is then stored, so this happens only once per list.
+
+On later boots the saved rules are loaded as normal, so `acl add`/`del`/`off` etc. made after that persist until a firmware with a different list is flashed. Any change to the list text counts as different, including reordering or spacing, and re-applies it. Building without the flag leaves the saved rules alone.
+
+**If something goes wrong:**
+- An invalid list (bad hex, wrong number of fields, duplicate, all-wildcard, more than 32 rules) is ignored as a whole: the repeater loads its saved rules instead and tries the list again on every boot.
+- If the rules can't be saved to flash, the built-in list is still used for that boot and is applied again on the next one.
+
+**Downgrading:** firmware older than group-rule support can't read the current `/fwd_acl` format. If it was built with the same list, the stored fingerprint still matches, so the list is **not** re-applied and the repeater comes up with an empty, disabled ACL. Older firmware also only understands DM rules with 1–2 byte hops, and rejects the whole list if it contains a group rule, a 3-byte hop or `0`. To get default rules back after a downgrade, build the older firmware with a changed list (e.g. reordered) that contains only DM rules with 1–2 byte hops; otherwise it keeps rejecting the list and stays empty and disabled.
 
 ---
 
