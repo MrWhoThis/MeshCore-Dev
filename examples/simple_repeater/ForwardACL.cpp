@@ -4,40 +4,61 @@
 #include <stdlib.h>
 
 static const uint8_t FWD_ACL_MAGIC[4] = { 'F', 'A', 'C', 'L' };
-#define FWD_ACL_FILE_VERSION  1
+#define FWD_ACL_FILE_VERSION     2
+#define FWD_ACL_FILE_VERSION_V1  1
 
 static bool isWildcardAll(const AclEntry& e) {
-  return e.hop_len == 0 && (e.flags & ACL_FLAG_SRC_ANY) && (e.flags & ACL_FLAG_DST_ANY);
+  return e.hop_len == 0 && !(e.flags & ACL_FLAG_HOP_ZERO)
+      && (e.flags & ACL_FLAG_SRC_ANY) && (e.flags & ACL_FLAG_DST_ANY);
 }
 
 static bool isValidEntry(const AclEntry& e) {
-  if (e.hop_len > 2) return false;
-  if (e.flags & ~(ACL_FLAG_SRC_ANY | ACL_FLAG_DST_ANY)) return false;
+  if (e.hop_len > FWD_ACL_MAX_HOP_LEN) return false;
+  if (e.flags & ~(ACL_FLAG_SRC_ANY | ACL_FLAG_DST_ANY | ACL_FLAG_HOP_ZERO)) return false;
+  if ((e.flags & ACL_FLAG_HOP_ZERO) && e.hop_len != 0) return false;
+  if (e.kind != ACL_KIND_DM && e.kind != ACL_KIND_GRP) return false;
+  if (e.kind == ACL_KIND_GRP && !(e.flags & ACL_FLAG_SRC_ANY)) return false;   // group packets carry no src
   return !isWildcardAll(e);
 }
 
 bool aclMatches(const AclEntry& e, const mesh::Packet* pkt) {
-  // only payload types with cleartext dest/src hashes at payload[0] / payload[1]
+  // DM kinds: cleartext dest/src hashes at payload[0] / payload[1]
+  // GRP kind: cleartext channel hash at payload[0], sender is encrypted
+  uint8_t min_len;
   switch (pkt->getPayloadType()) {
     case PAYLOAD_TYPE_REQ:
     case PAYLOAD_TYPE_RESPONSE:
     case PAYLOAD_TYPE_TXT_MSG:
     case PAYLOAD_TYPE_PATH:
+      if (e.kind != ACL_KIND_DM) return false;
+      min_len = 2;
+      break;
+    case PAYLOAD_TYPE_GRP_TXT:
+    case PAYLOAD_TYPE_GRP_DATA:
+      if (e.kind != ACL_KIND_GRP) return false;
+      min_len = 1;
       break;
     default:
       return false;
   }
   if (pkt->getPayloadVer() != PAYLOAD_VER_1) return false;   // future versions may change hash layout
-  if (pkt->payload_len < 2) return false;
+  if (pkt->payload_len < min_len) return false;
   if (isWildcardAll(e)) return false;   // never block everything (defensive, CLI rejects these)
 
   if (!(e.flags & ACL_FLAG_DST_ANY) && pkt->payload[0] != e.dst) return false;
   if (!(e.flags & ACL_FLAG_SRC_ANY) && pkt->payload[1] != e.src) return false;
 
-  if (e.hop_len > 0) {
+  if (e.flags & ACL_FLAG_HOP_ZERO) {
+    // heard straight from the originator: flood packet nobody has relayed yet
+    if (!pkt->isRouteFlood()) return false;
+    if (pkt->getPathHashCount() != 0) return false;
+  } else if (e.hop_len > 0) {
     // for DIRECT packets 'path' is the route ahead, not behind, so a hop rule can't apply
     if (!pkt->isRouteFlood()) return false;
     if (pkt->getPathHashCount() == 0) return false;   // straight from originator, no first hop
+    // The originator chooses the path hash size (1..3 bytes), so compare the overlapping prefix.
+    // A longer rule therefore still matches when the sender drops to a smaller hash size
+    // (it can't be evaded that way), at the cost of also matching other nodes sharing that prefix.
     uint8_t n = pkt->getPathHashSize();
     if (e.hop_len < n) n = e.hop_len;
     if (memcmp(pkt->path, e.hop, n) != 0) return false;   // prefix match on the first path entry
@@ -78,7 +99,7 @@ bool ForwardACL::shouldBlock(const mesh::Packet* pkt) {
 }
 
 static bool sameEntry(const AclEntry& a, const AclEntry& b) {
-  if (a.hop_len != b.hop_len || a.flags != b.flags) return false;
+  if (a.kind != b.kind || a.hop_len != b.hop_len || a.flags != b.flags) return false;
   if (a.hop_len > 0 && memcmp(a.hop, b.hop, a.hop_len) != 0) return false;
   if (!(a.flags & ACL_FLAG_SRC_ANY) && a.src != b.src) return false;
   if (!(a.flags & ACL_FLAG_DST_ANY) && a.dst != b.dst) return false;
@@ -120,7 +141,9 @@ size_t ForwardACL::serialise(uint8_t* buf, size_t buf_len) const {
     const AclEntry& e = _entries[i];
     *p++ = e.hop[0];
     *p++ = e.hop[1];
+    *p++ = e.hop[2];
     *p++ = e.hop_len;
+    *p++ = e.kind;
     *p++ = e.src;
     *p++ = e.dst;
     *p++ = e.flags;
@@ -132,22 +155,34 @@ bool ForwardACL::deserialise(const uint8_t* buf, size_t len) {
   reset();
   if (buf == NULL || len < HEADER_SIZE) return false;
   if (memcmp(buf, FWD_ACL_MAGIC, 4) != 0) return false;
-  if (buf[4] != FWD_ACL_FILE_VERSION) return false;
+  uint8_t version = buf[4];
+  if (version != FWD_ACL_FILE_VERSION && version != FWD_ACL_FILE_VERSION_V1) return false;
+  bool v1 = version == FWD_ACL_FILE_VERSION_V1;
+  size_t entry_size = v1 ? ENTRY_SIZE_V1 : ENTRY_SIZE;
   uint8_t enabled = buf[5];
   uint8_t count = buf[6];
   if (enabled > 1 || count > FWD_ACL_MAX_ENTRIES) return false;
-  if (len != HEADER_SIZE + ENTRY_SIZE * (size_t)count) return false;
+  if (len != HEADER_SIZE + entry_size * (size_t)count) return false;
 
   const uint8_t* p = &buf[HEADER_SIZE];
   for (int i = 0; i < count; i++) {
     AclEntry e;
+    memset(&e, 0, sizeof(e));
     e.hop[0] = *p++;
     e.hop[1] = *p++;
+    if (!v1) e.hop[2] = *p++;
     e.hop_len = *p++;
+    e.kind = v1 ? ACL_KIND_DM : *p++;
     e.src = *p++;
     e.dst = *p++;
     e.flags = *p++;
+    // v1 only knew 1..2 byte hops and the src/dst wildcard flags
+    if (v1 && (e.hop_len > 2 || (e.flags & ~(ACL_FLAG_SRC_ANY | ACL_FLAG_DST_ANY)))) { reset(); return false; }
     if (!isValidEntry(e)) { reset(); return false; }
+    // canonicalise: zero bytes that have no meaning for this entry, so they're never written back
+    for (int k = e.hop_len; k < FWD_ACL_MAX_HOP_LEN; k++) e.hop[k] = 0;
+    if (e.flags & ACL_FLAG_SRC_ANY) e.src = 0;
+    if (e.flags & ACL_FLAG_DST_ANY) e.dst = 0;
     _entries[i] = e;
   }
   _count = count;
@@ -173,17 +208,33 @@ static bool parseHexExact(const char* s, uint8_t* dest, int n) {
   return true;
 }
 
-bool ForwardACL::parseEntry(const char* hop, const char* src, const char* dst, AclEntry& out) {
+// '*' = any, '0' = zero hops (straight from originator), or 1..3 bytes of hex
+static bool parseHop(const char* hop, AclEntry& out) {
+  if (strcmp(hop, "*") == 0) return true;
+  if (strcmp(hop, "0") == 0) { out.flags |= ACL_FLAG_HOP_ZERO; return true; }
+  for (int n = 1; n <= FWD_ACL_MAX_HOP_LEN; n++) {
+    if (parseHexExact(hop, out.hop, n)) { out.hop_len = n; return true; }
+  }
+  return false;
+}
+
+bool ForwardACL::parseGroupEntry(const char* hop, const char* chan, AclEntry& out) {
   memset(&out, 0, sizeof(out));
-  if (strcmp(hop, "*") == 0) {
-    out.hop_len = 0;
-  } else if (parseHexExact(hop, out.hop, 1)) {
-    out.hop_len = 1;
-  } else if (parseHexExact(hop, out.hop, 2)) {
-    out.hop_len = 2;
-  } else {
+  out.kind = ACL_KIND_GRP;
+  out.flags |= ACL_FLAG_SRC_ANY;
+  if (!parseHop(hop, out)) return false;
+  if (strcmp(chan, "*") == 0) {
+    out.flags |= ACL_FLAG_DST_ANY;
+  } else if (!parseHexExact(chan, &out.dst, 1)) {
     return false;
   }
+  return true;
+}
+
+bool ForwardACL::parseEntry(const char* hop, const char* src, const char* dst, AclEntry& out) {
+  memset(&out, 0, sizeof(out));
+  out.kind = ACL_KIND_DM;
+  if (!parseHop(hop, out)) return false;
   if (strcmp(src, "*") == 0) {
     out.flags |= ACL_FLAG_SRC_ANY;
   } else if (!parseHexExact(src, &out.src, 1)) {
@@ -212,11 +263,18 @@ int ForwardACL::loadDefaults(const char* spec) {
     }
     tok[n] = 0;
     char* s1 = strchr(tok, '/');
-    char* s2 = s1 ? strchr(s1 + 1, '/') : NULL;
-    if (s2 == NULL || strchr(s2 + 1, '/') != NULL) { reset(); return -1; }
-    *s1 = 0; *s2 = 0;
+    if (s1 == NULL) { reset(); return -1; }
     AclEntry e;
-    if (!parseEntry(tok, s1 + 1, s2 + 1, e) || add(e) < 0) { reset(); return -1; }
+    if (s1[1] == '#') {   // group rule: hop/#chan
+      if (strchr(s1 + 1, '/') != NULL) { reset(); return -1; }
+      *s1 = 0;
+      if (!parseGroupEntry(tok, s1 + 2, e) || add(e) < 0) { reset(); return -1; }
+    } else {              // DM rule: hop/src/dst
+      char* s2 = strchr(s1 + 1, '/');
+      if (s2 == NULL || strchr(s2 + 1, '/') != NULL) { reset(); return -1; }
+      *s1 = 0; *s2 = 0;
+      if (!parseEntry(tok, s1 + 1, s2 + 1, e) || add(e) < 0) { reset(); return -1; }
+    }
   }
   _enabled = _count > 0;
   return _count;
@@ -232,13 +290,22 @@ uint32_t ForwardACL::specHash(const char* spec) {
 }
 
 void ForwardACL::formatEntry(const AclEntry& e, char* dest) {
-  char hop[5], src[3], dst[3];
-  if (e.hop_len == 0) strcpy(hop, "*");
-  else if (e.hop_len == 1) sprintf(hop, "%02x", e.hop[0]);
-  else sprintf(hop, "%02x%02x", e.hop[0], e.hop[1]);
+  char hop[2 * FWD_ACL_MAX_HOP_LEN + 1], src[3], dst[3];
+  if (e.flags & ACL_FLAG_HOP_ZERO) {
+    strcpy(hop, "0");
+  } else if (e.hop_len == 0) {
+    strcpy(hop, "*");
+  } else {
+    char* hp = hop;
+    for (int i = 0; i < e.hop_len && i < FWD_ACL_MAX_HOP_LEN; i++) hp += sprintf(hp, "%02x", e.hop[i]);
+  }
   if (e.flags & ACL_FLAG_SRC_ANY) strcpy(src, "*"); else sprintf(src, "%02x", e.src);
   if (e.flags & ACL_FLAG_DST_ANY) strcpy(dst, "*"); else sprintf(dst, "%02x", e.dst);
-  sprintf(dest, "%s/%s/%s", hop, src, dst);
+  if (e.kind == ACL_KIND_GRP) {
+    sprintf(dest, "grp %s/#%s", hop, dst);
+  } else {
+    sprintf(dest, "%s/%s/%s", hop, src, dst);
+  }
 }
 
 // splits 'buf' in place on spaces, returns number of tokens
@@ -255,6 +322,10 @@ static int tokenise(char* buf, char* argv[], int max_args) {
   while (*p == ' ') p++;
   if (*p) return -1;   // too many args
   return n;
+}
+
+static bool isGrpKeyword(const char* s) {   // case-insensitive "grp"
+  return (s[0] | 0x20) == 'g' && (s[1] | 0x20) == 'r' && (s[2] | 0x20) == 'p' && s[3] == 0;
 }
 
 bool ForwardACL::handleCommand(const char* args, char* reply) {
@@ -275,9 +346,14 @@ bool ForwardACL::handleCommand(const char* args, char* reply) {
   const char* cmd = argv[0];
 
   if (strcmp(cmd, "add") == 0) {
-    if (argc != 4) { strcpy(reply, "ERR: usage acl add <hop> <src> <dst>"); return false; }
     AclEntry e;
-    if (!parseEntry(argv[1], argv[2], argv[3], e)) { strcpy(reply, "ERR: bad hex"); return false; }
+    if (argc >= 2 && isGrpKeyword(argv[1])) {
+      if (argc != 4) { strcpy(reply, "ERR: usage acl add grp <hop> <chan>"); return false; }
+      if (!parseGroupEntry(argv[2], argv[3], e)) { strcpy(reply, "ERR: bad hex"); return false; }
+    } else {
+      if (argc != 4) { strcpy(reply, "ERR: usage acl add <hop> <src> <dst> | add grp <hop> <chan>"); return false; }
+      if (!parseEntry(argv[1], argv[2], argv[3], e)) { strcpy(reply, "ERR: bad hex"); return false; }
+    }
     int r = add(e);
     if (r == ADD_ERR_INVALID) { strcpy(reply, "ERR: all-wildcard rule"); return false; }
     if (r == ADD_ERR_DUPLICATE) { strcpy(reply, "ERR: duplicate"); return false; }
@@ -311,9 +387,9 @@ bool ForwardACL::handleCommand(const char* args, char* reply) {
     int end = start + FWD_ACL_LIST_PAGE;
     if (end > _count) end = _count;
     for (int i = start; i < end; i++) {
-      char ent[16];
+      char ent[FORMAT_MAX];
       formatEntry(_entries[i], ent);
-      // worst case per line: "32:c8f2/08/7d h=4294967295\n" = 27 chars
+      // worst case per line: "32:grp c8f2a1/#11 h=4294967295\n" = 31 chars; 4 per page + footer < 160
       dp += sprintf(dp, "%s%d:%s h=%lu", i > start ? "\n" : "", i + 1, ent, (unsigned long)_hits[i]);
     }
     if (pages > 1) sprintf(dp, "\n(page %ld/%d)", page, pages);
