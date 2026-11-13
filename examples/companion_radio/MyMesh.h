@@ -7,11 +7,11 @@
 #define FIRMWARE_VER_CODE 14
 
 #ifndef FIRMWARE_BUILD_DATE
-#define FIRMWARE_BUILD_DATE "15 Oct 2026"
+#define FIRMWARE_BUILD_DATE __DATE__   // compiler-supplied date this firmware was built
 #endif
 
 #ifndef FIRMWARE_VERSION
-#define FIRMWARE_VERSION "v1.18.0"
+#define FIRMWARE_VERSION "1.18 filter acl"
 #endif
 
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
