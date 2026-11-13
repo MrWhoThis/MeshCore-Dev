@@ -9,7 +9,7 @@ The Connecticut Mesh has been taking floods of junk traffic coming in from nodes
 This fork adds a small, opt-in **forwarding ACL** to the Simple Repeater. Operators can stop their repeater from **re-transmitting** packets that match a source, a destination, and/or the first repeater the packets entered the mesh through. Nothing else changes:
 
 - Packets addressed to the repeater itself are still received and processed normally. Only forwarding is suppressed.
-- The ACL is **off by default**. A repeater flashed with this firmware behaves exactly like stock v1.18.0 until an admin adds rules and runs `acl on`.
+- The ACL is **off by default**. A repeater flashed with this firmware behaves exactly like stock v1.18.0 until an admin adds rules and runs `acl on`, unless the firmware is built with a default rule list (`FWD_ACL_DEFAULTS`, see below).
 - Direct-message rules check `REQ`, `RESPONSE`, `TXT_MSG` and `PATH` packets, which carry cleartext source and destination hashes. Group rules (`acl add grp <hop> <chan>`) check channel/group messages by channel hash and first hop, since their sender is encrypted. Adverts, ACKs, trace and similar packets are never blocked.
 
 ## Quick start (repeater admin CLI)
@@ -25,11 +25,21 @@ acl status            # e.g. "acl on, 2/32 entries, 42 hits"
 
 The full reference is in [docs/cli_commands.md → Forwarding ACL](./docs/cli_commands.md#forwarding-acl-repeater-only). It covers rule syntax, scope, persistence and error messages.
 
+## Building with default rules
+
+To ship repeaters that start filtering straight away, set a rule list in the repeater env's `build_flags`:
+
+```ini
+  -D FWD_ACL_DEFAULTS='"c8/08/7d,c8/#11"'
+```
+
+DM rules are `hop/src/dst`, group rules are `hop/#chan`. On first boot, and again whenever a firmware with a *different* list is flashed, the list replaces the saved rules and turns the ACL on. CLI changes made after that persist across reboots. Details, including error handling and downgrades, are in [docs/cli_commands.md → Build-time default rules](./docs/cli_commands.md#build-time-default-rules-fwd_acl_defaults).
+
 ## What changed vs. upstream v1.18.0
 
 | File | Change |
 |---|---|
-| `examples/simple_repeater/ForwardACL.{h,cpp}` | Rule matching, CLI parsing, save/load to `/fwd_acl` |
+| `examples/simple_repeater/ForwardACL.{h,cpp}` | Rule matching, CLI parsing, save/load to `/fwd_acl`, `FWD_ACL_DEFAULTS` parsing |
 | `examples/simple_repeater/MyMesh.{h,cpp}` | Hooks the ACL into `allowPacketForward()` and the CLI |
 | `test/test_forward_acl/` | Native unit tests (`pio test -e native -f test_forward_acl`) |
 | `docs/cli_commands.md` | Forwarding ACL documentation |
