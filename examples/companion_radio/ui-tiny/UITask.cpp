@@ -35,7 +35,7 @@ class SplashScreen : public UIScreen {
   UITask* _task;
   unsigned long dismiss_after;
   unsigned long version_after;
-  char _version_info[12];
+  char _version_info[16];
 
 public:
   SplashScreen(UITask* task) : _task(task) {
